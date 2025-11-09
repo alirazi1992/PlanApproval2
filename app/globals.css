@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-950 text-slate-100 min-h-screen;
+}
+
+a {
+  @apply text-sky-400 hover:text-sky-200;
+}
+
+.main-container {
+  @apply flex min-h-screen;
+}
+
+.sidebar {
+  @apply w-72 bg-slate-900 border-r border-slate-800 p-6;
+}
+
+.content {
+  @apply flex-1 p-8 overflow-y-auto;
+}
+
+.page-title {
+  @apply text-2xl font-semibold mb-4;
+}
+
+.section-card {
+  @apply bg-slate-900 border border-slate-800 rounded-lg p-6 mb-6 shadow-lg;
+}
+
+.section-heading {
+  @apply text-xl font-semibold mb-2;
+}

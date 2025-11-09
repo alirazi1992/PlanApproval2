@@ -1,0 +1,680 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectType {
+  Hull
+  Machinery
+  Electrical
+  General
+}
+
+enum ProjectStatus {
+  Pending
+  UnderReview
+  Approved
+  Certified
+}
+
+enum DocumentReviewStatus {
+  UnderReview
+  Approved
+  Rejected
+}
+
+enum DocumentWorkflowState {
+  Draft
+  UnderReview
+  Rejected
+  Commented
+  Accepted
+  Verified
+  Final
+  Revoked
+  Withdrawn
+  RevisedPendingReview
+  SupersededLocked
+  ConflictDetected
+}
+
+enum InspectionType {
+  Initial
+  Re
+  Final
+}
+
+enum InspectionResult {
+  Compliant
+  NonCompliant
+  Conditional
+}
+
+enum CertificateType {
+  Design
+  Renewal
+  Replacement
+}
+
+enum RequirementItemStatus {
+  ReadyForUpload
+  PendingDependency
+  NotApplicable
+}
+
+enum UploadIntegrityStatus {
+  Pending
+  Completed
+  IntegrityError
+}
+
+enum WorkflowAction {
+  Submit
+  Reject
+  Comment
+  Accept
+  Verify
+  Finalize
+  Revoke
+  Withdraw
+  Revise
+  Lock
+  ResolveConflict
+}
+
+enum ReportFormat {
+  PDF
+  Excel
+  CSV
+}
+
+enum AuditAction {
+  Created
+  Updated
+  Deleted
+  WorkflowTransition
+  PermissionChange
+  Upload
+  IntegrityFailure
+  InspectionResult
+  CertificateIssued
+  DigitalSignature
+  DigitalSeal
+  Lockdown
+}
+
+enum SecuritySeverity {
+  Low
+  Medium
+  High
+  Critical
+}
+
+enum DigitalSignatureStatus {
+  Pending
+  Signed
+  Sealed
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  units       Unit[]
+  projects    Project[]
+  roles       AccessRole[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Unit {
+  id             String      @id @default(uuid())
+  name           String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  projects       Project[]
+  users          UserUnit[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+model User {
+  id             String      @id @default(uuid())
+  email          String      @unique
+  name           String
+  hashedPassword String
+  roles          RoleAssignment[]
+  projects       Project[]   @relation("ProjectApplicant")
+  reviewedDocs   Document[]  @relation("DocumentReviewer")
+  inspections    Inspection[]
+  reviewCaches   OfflineReviewCache[]
+  auditEvents    AuditEvent[]
+  securityLogs   SecurityLog[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+model UserUnit {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+  unit   Unit   @relation(fields: [unitId], references: [id])
+  unitId String
+  role   String
+  createdAt DateTime @default(now())
+}
+
+model Project {
+  id            String        @id @default(uuid())
+  utn           String        @unique
+  applicant     User          @relation("ProjectApplicant", fields: [applicantId], references: [id])
+  applicantId   String
+  projectType   ProjectType
+  status        ProjectStatus @default(Pending)
+  unit          Unit          @relation(fields: [unitId], references: [id])
+  unitId        String
+  documents     Document[]
+  inspections   Inspection[]
+  certificates  Certificate[]
+  requirementSets RequirementSetApplication[]
+  workflowStates WorkflowState[]
+  auditEvents   AuditEvent[]
+  reportSchedules ReportSchedule[]
+  activities    ActivityTimelineEvent[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Document {
+  id            String                @id @default(uuid())
+  project       Project               @relation(fields: [projectId], references: [id])
+  projectId     String
+  fileName      String
+  fileHash      String                @db.Char(64)
+  revision      Int
+  reviewStatus  DocumentReviewStatus  @default(UnderReview)
+  reviewedBy    User?                 @relation("DocumentReviewer", fields: [reviewedById], references: [id])
+  reviewedById  String?
+  reviewDate    DateTime?
+  comment       String?
+  workflowState DocumentWorkflowState @default(Draft)
+  uploadStatus  UploadIntegrityStatus @default(Pending)
+  versionChain  VersionChain?         @relation(fields: [versionChainId], references: [id])
+  versionChainId String?
+  uploadChunks  UploadChunk[]
+  digitalSignatures DigitalSignature[]
+  offlineCaches OfflineReviewCache[]
+  checklistEntries RequirementChecklistEntry[]
+  threads       RequirementItemThread[]
+  conflictLogs  ConflictResolution[]
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+}
+
+model VersionChain {
+  id            String     @id @default(uuid())
+  project       Project    @relation(fields: [projectId], references: [id])
+  projectId     String
+  documents     Document[]
+  rootDocumentId String?
+  createdAt     DateTime   @default(now())
+}
+
+model UploadChunk {
+  id          String   @id @default(uuid())
+  document    Document @relation(fields: [documentId], references: [id])
+  documentId  String
+  chunkNo     Int
+  size        Int
+  sha256      String @db.Char(64)
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([documentId, chunkNo])
+}
+
+model Inspection {
+  id             String          @id @default(uuid())
+  project        Project         @relation(fields: [projectId], references: [id])
+  projectId      String
+  type           InspectionType
+  inspector      User            @relation(fields: [inspectorId], references: [id])
+  inspectorId    String
+  inspectionDate DateTime
+  result         InspectionResult
+  remarks        String?
+  capa           CorrectiveActionPlan?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model CorrectiveActionPlan {
+  id           String      @id @default(uuid())
+  inspection   Inspection  @relation(fields: [inspectionId], references: [id])
+  inspectionId String      @unique
+  project      Project     @relation(fields: [projectId], references: [id])
+  projectId    String
+  status       String
+  dueDate      DateTime?
+  closedAt     DateTime?
+  approver     User?       @relation(fields: [approverId], references: [id])
+  approverId   String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Certificate {
+  id          String         @id @default(uuid())
+  project     Project        @relation(fields: [projectId], references: [id])
+  projectId   String
+  type        CertificateType
+  issueDate   DateTime
+  expiryDate  DateTime?
+  auditEvents AuditEvent[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model RequirementLibrary {
+  id          String              @id @default(uuid())
+  projectType ProjectType
+  title       String
+  description String?
+  versions    RequirementSet[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+model RequirementSet {
+  id             String               @id @default(uuid())
+  version        Int
+  library        RequirementLibrary   @relation(fields: [libraryId], references: [id])
+  libraryId      String
+  changeNote     String?
+  items          RequirementItem[]
+  versionChain   RequirementVersionChain? @relation(fields: [versionChainId], references: [id])
+  versionChainId String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+}
+
+model RequirementVersionChain {
+  id           String            @id @default(uuid())
+  projectType  ProjectType
+  requirementSets RequirementSet[]
+  createdAt    DateTime          @default(now())
+}
+
+model RequirementItem {
+  id              String                 @id @default(uuid())
+  requirementSet  RequirementSet         @relation(fields: [requirementSetId], references: [id])
+  requirementSetId String
+  title           String
+  description     String?
+  required        Boolean
+  acceptanceCriteria String?
+  status          RequirementItemStatus @default(PendingDependency)
+  changeImpactNote String?
+  prerequisites   RequirementPrerequisite[]
+  dependencies    RequirementDependency[]
+  trail           RequirementTrailEntry[]
+  checklistEntries RequirementChecklistEntry[]
+  threads         RequirementItemThread[]
+}
+
+model RequirementPrerequisite {
+  id              String           @id @default(uuid())
+  item            RequirementItem  @relation(fields: [itemId], references: [id])
+  itemId          String
+  prerequisiteKey String
+}
+
+model RequirementDependency {
+  id              String          @id @default(uuid())
+  item            RequirementItem @relation(fields: [itemId], references: [id])
+  itemId          String
+  dependsOn       String
+}
+
+model RequirementSetApplication {
+  id              String            @id @default(uuid())
+  project         Project           @relation(fields: [projectId], references: [id])
+  projectId       String
+  requirementSet  RequirementSet    @relation(fields: [requirementSetId], references: [id])
+  requirementSetId String
+  appliedAt       DateTime          @default(now())
+}
+
+model AccessRole {
+  id             String        @id @default(uuid())
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  organizationId String?
+  name           String
+  description    String?
+  assignments    RoleAssignment[]
+  grants         AccessGrant[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model AccessToken {
+  id          String        @id @default(uuid())
+  code        String        @unique
+  name        String
+  description String?
+  grants      AccessGrant[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model AccessScope {
+  id          String      @id @default(uuid())
+  scopeType   String
+  referenceId String?
+  grants      AccessGrant[]
+  assignments RoleAssignment[]
+  delegations Delegation[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model AccessGrant {
+  id          String       @id @default(uuid())
+  role        AccessRole   @relation(fields: [roleId], references: [id])
+  roleId      String
+  token       AccessToken  @relation(fields: [tokenId], references: [id])
+  tokenId     String
+  scope       AccessScope  @relation(fields: [scopeId], references: [id])
+  scopeId     String
+  visibility  Int          @default(100)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([roleId, tokenId, scopeId])
+}
+
+model RoleAssignment {
+  id        String       @id @default(uuid())
+  user      User         @relation(fields: [userId], references: [id])
+  userId    String
+  role      AccessRole   @relation(fields: [roleId], references: [id])
+  roleId    String
+  scope     AccessScope  @relation(fields: [scopeId], references: [id])
+  scopeId   String
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model WorkflowState {
+  id          String               @id @default(uuid())
+  project     Project              @relation(fields: [projectId], references: [id])
+  projectId   String
+  state       DocumentWorkflowState
+  enteredAt   DateTime             @default(now())
+  actor       User?                @relation(fields: [actorId], references: [id])
+  actorId     String?
+  comment     String?
+}
+
+model WorkflowTransitionLog {
+  id            String             @id @default(uuid())
+  project       Project            @relation(fields: [projectId], references: [id])
+  projectId     String
+  document      Document?          @relation(fields: [documentId], references: [id])
+  documentId    String?
+  fromState     DocumentWorkflowState
+  toState       DocumentWorkflowState
+  action        WorkflowAction
+  actedBy       User?              @relation(fields: [actedById], references: [id])
+  actedById     String?
+  actedAt       DateTime           @default(now())
+  comment       String?
+}
+
+model Waiver {
+  id          String    @id @default(uuid())
+  project     Project   @relation(fields: [projectId], references: [id])
+  projectId   String
+  reason      String
+  status      String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model ReportSchedule {
+  id           String       @id @default(uuid())
+  project      Project?     @relation(fields: [projectId], references: [id])
+  projectId    String?
+  name         String
+  format       ReportFormat
+  cron         String
+  requiresSign Boolean      @default(false)
+  lastRunAt    DateTime?
+  createdBy    User?        @relation(fields: [createdById], references: [id])
+  createdById  String?
+  executions   ReportExecution[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model ReportExecution {
+  id            String        @id @default(uuid())
+  schedule      ReportSchedule? @relation(fields: [scheduleId], references: [id])
+  scheduleId    String?
+  reportType    String
+  format        ReportFormat
+  executedAt    DateTime      @default(now())
+  executedBy    User?         @relation(fields: [executedById], references: [id])
+  executedById  String?
+  location      String
+}
+
+model KPIConfig {
+  id          String      @id @default(uuid())
+  code        String      @unique
+  name        String
+  description String?
+  target      Float?
+  unit        String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model AuditEvent {
+  id            String      @id @default(uuid())
+  user          User?       @relation(fields: [userId], references: [id])
+  userId        String?
+  role          AccessRole? @relation(fields: [roleId], references: [id])
+  roleId        String?
+  token         AccessToken? @relation(fields: [tokenId], references: [id])
+  tokenId       String?
+  scope         AccessScope? @relation(fields: [scopeId], references: [id])
+  scopeId       String?
+  project       Project?     @relation(fields: [projectId], references: [id])
+  projectId     String?
+  certificate   Certificate? @relation(fields: [certificateId], references: [id])
+  certificateId String?
+  entity        String
+  action        AuditAction
+  beforeRef     String?
+  afterRef      String?
+  ipAddress     String?
+  createdAt     DateTime     @default(now())
+}
+
+model SecurityLog {
+  id          String          @id @default(uuid())
+  user        User?           @relation(fields: [userId], references: [id])
+  userId      String?
+  event       String
+  details     String?
+  severity    SecuritySeverity @default(Medium)
+  createdAt   DateTime         @default(now())
+}
+
+model DigitalSignature {
+  id             String                  @id @default(uuid())
+  document       Document                @relation(fields: [documentId], references: [id])
+  documentId     String
+  signer         User                    @relation(fields: [signerId], references: [id])
+  signerId       String
+  preSignHash    String                  @db.Char(64)
+  postSealHash   String?                 @db.Char(64)
+  certificateRef String?
+  status         DigitalSignatureStatus  @default(Pending)
+  sealedAt       DateTime?
+  qrCode         String?
+  pages          DigitalSealPage[]
+  createdAt      DateTime                @default(now())
+}
+
+model OfflineReviewCache {
+  id              String      @id @default(uuid())
+  reviewer        User        @relation(fields: [reviewerId], references: [id])
+  reviewerId      String
+  document        Document    @relation(fields: [documentId], references: [id])
+  documentId      String
+  cachedAt        DateTime    @default(now())
+  syncedAt        DateTime?
+  conflictState   Boolean     @default(false)
+  payloadHash     String      @db.Char(64)
+}
+
+model UploadSession {
+  id             String     @id @default(uuid())
+  document       Document   @relation(fields: [documentId], references: [id])
+  documentId     String
+  currentChunk   Int        @default(0)
+  expectedChunks Int
+  totalSize      Int
+  status         UploadIntegrityStatus @default(Pending)
+  createdBy      User        @relation(fields: [createdById], references: [id])
+  createdById    String
+  actingUser     User?       @relation("ClerkActing", fields: [actingUserId], references: [id])
+  actingUserId   String?
+  note           String?
+  digests        UploadChunkDigest[]
+  createdAt      DateTime    @default(now())
+  completedAt    DateTime?
+}
+
+model UploadChunkDigest {
+  id            String    @id @default(uuid())
+  session       UploadSession @relation(fields: [sessionId], references: [id])
+  sessionId     String
+  chunkNo       Int
+  sha256        String   @db.Char(64)
+  size          Int
+  createdAt     DateTime @default(now())
+
+  @@unique([sessionId, chunkNo])
+}
+
+model Delegation {
+  id          String     @id @default(uuid())
+  principal   User       @relation("Principal", fields: [principalId], references: [id])
+  principalId String
+  delegate    User       @relation("Delegate", fields: [delegateId], references: [id])
+  delegateId  String
+  scope       AccessScope @relation(fields: [scopeId], references: [id])
+  scopeId     String
+  expiresAt   DateTime?
+  createdAt   DateTime   @default(now())
+}
+
+model LockdownEvent {
+  id          String          @id @default(uuid())
+  reason      String
+  triggeredBy SecurityLog?    @relation(fields: [triggeredById], references: [id])
+  triggeredById String?
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  releasedAt  DateTime?
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  recipient   User     @relation(fields: [recipientId], references: [id])
+  recipientId String
+  message     String
+  link        String?
+  createdAt   DateTime @default(now())
+  readAt      DateTime?
+}
+
+model RequirementItemThread {
+  id          String          @id @default(uuid())
+  requirement RequirementItem @relation(fields: [requirementId], references: [id])
+  requirementId String
+  document     Document?      @relation(fields: [documentId], references: [id])
+  documentId   String?
+  createdBy    User           @relation(fields: [createdById], references: [id])
+  createdById  String
+  messages     ThreadMessage[]
+  createdAt    DateTime       @default(now())
+}
+
+model ThreadMessage {
+  id          String               @id @default(uuid())
+  thread      RequirementItemThread @relation(fields: [threadId], references: [id])
+  threadId    String
+  author      User                 @relation(fields: [authorId], references: [id])
+  authorId    String
+  content     String
+  createdAt   DateTime             @default(now())
+}
+
+model RequirementChecklistEntry {
+  id           String          @id @default(uuid())
+  document     Document        @relation(fields: [documentId], references: [id])
+  documentId   String
+  requirement  RequirementItem @relation(fields: [requirementId], references: [id])
+  requirementId String
+  status       String
+  notes        String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([documentId, requirementId])
+}
+
+model DigitalSealPage {
+  id            String           @id @default(uuid())
+  signature     DigitalSignature @relation(fields: [signatureId], references: [id])
+  signatureId   String
+  pageNumber    Int
+  pageHash      String           @db.Char(64)
+  createdAt     DateTime         @default(now())
+}
+
+model ConflictResolution {
+  id            String               @id @default(uuid())
+  document      Document             @relation(fields: [documentId], references: [id])
+  documentId    String
+  detectedAt    DateTime             @default(now())
+  resolvedAt    DateTime?
+  resolver      User?                @relation(fields: [resolverId], references: [id])
+  resolverId    String?
+  outcome       String?
+}
+
+model RequirementTrailEntry {
+  id             String          @id @default(uuid())
+  requirement    RequirementItem @relation(fields: [requirementId], references: [id])
+  requirementId  String
+  description    String
+  createdAt      DateTime        @default(now())
+}
+
+model ActivityTimelineEvent {
+  id          String      @id @default(uuid())
+  project     Project     @relation(fields: [projectId], references: [id])
+  projectId   String
+  label       String
+  occurredAt  DateTime    @default(now())
+  metadata    String?
+}
